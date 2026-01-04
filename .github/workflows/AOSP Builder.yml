@@ -33,7 +33,7 @@ jobs:
         echo "GCC32_PATH=$GITHUB_WORKSPACE/gcc32" >> $GITHUB_ENV
         
     - name: 📥 Clone kernelSU-Next
-      run: curl -LSs "https://raw.githubusercontent.com/Mr-Morat/KernelSU-Next/susfs/kernel/setup.sh" | bash -s susfs
+      run: curl -LSs "https://raw.githubusercontent.com/Mr-Morat/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
       
     - name: 📅 Set BUILD DATE
       run: |
@@ -66,7 +66,7 @@ jobs:
         
     - name: 📂 Clone Anykernel3 & Zip
       run: |
-        git clone --depth=1 https://github.com/Mr-Morat/anykernel3 -b main AnyKernel3
+        git clone --depth=1 https://github.com/Mr-Morat/anykernel3 -b BruthXotic AnyKernel3
         cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
         cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
         cp out/arch/arm64/boot/dtb.img AnyKernel3/dtb.img
