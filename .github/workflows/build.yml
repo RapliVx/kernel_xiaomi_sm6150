@@ -107,11 +107,20 @@ jobs:
 
       - name: "💾 [OPT] :: ALLOCATE SWAP SPACE (ANTI-OOM LTO)"
         run: |
+          echo "Clearing existing swap ..."
+          sudo swapoff /swapfile || true
+          sudo rm -f /swapfile
+
           echo "Allocating 8GB Swap Space to prevent LTO linking from being killed by OOM..."
-          sudo fallocate -l 8G /swapfile
+          # Using dd for more reliable allocation on virtualized storage
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
+          
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          
+          echo "Current Swap Status:"
+          swapon --show
 
       - name: "⚙️ [CONFIG] :: CCACHE_SETUP"
         run: |
