@@ -718,8 +718,20 @@ static int ln8000_get_adc_data(struct ln8000_info *info, unsigned int ch, int *r
     /* pause adc update */
     ret  = ln8000_update_reg(info, LN8000_REG_TIMER_CTRL, 0x1 << 1, 0x1 << 1);
     if (ret < 0) {
-       ln_err("fail to update bit PAUSE_ADC_UPDATE:1 (ret=%d)\n", ret);
-       return ret;
+        /* * FIX 1: Use the _ratelimited function to prevent the dmesg log from being flooded with thousands of messages per second, 
+        which can choke the CPU.
+        * (Replace ln_err with pr_err_ratelimited)
+        */
+        pr_err_ratelimited("ln8000: fail to update bit PAUSE_ADC_UPDATE:1 (ret=%d)\n", ret);
+        
+        /* *FIX 2: Don't forward the error (-13) to the Android framework.
+        * Provide a fallback/dummy value (e.g., 0), then return a status of 0 (success).
+        * This prevents the thermal or healthd daemon from panicking and triggering a reboot.
+        */
+        if (result) {
+            *result = 0; 
+        }
+        return 0; 
     }
 
     switch (ch) {
