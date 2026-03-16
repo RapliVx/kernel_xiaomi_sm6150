@@ -242,9 +242,10 @@ jobs:
           # Fetching Metadata from one of the artifact folders
           METADATA_DIR=$(ls -d ./artifacts/*-unit | head -n 1)
           
-          LTO_STAT=$(cat "$METADATA_DIR/out/LTO_STAT.txt")
-          LOCAL_VER=$(cat "$METADATA_DIR/out/LOCAL_VER.txt")
-          POLLY_STAT=$(cat "$METADATA_DIR/out/POLLY_STAT.txt")
+          # FIXED: Removed 'out/' prefix since upload-artifact v4 strips it
+          LTO_STAT=$(cat "$METADATA_DIR/LTO_STAT.txt")
+          LOCAL_VER=$(cat "$METADATA_DIR/LOCAL_VER.txt")
+          POLLY_STAT=$(cat "$METADATA_DIR/POLLY_STAT.txt")
           
           echo "LTO_STAT=$LTO_STAT" >> $GITHUB_ENV
           echo "LOCAL_VER=$LOCAL_VER" >> $GITHUB_ENV
@@ -290,9 +291,10 @@ jobs:
               VARIANT=$(basename "$DIR" -unit)
               echo "Packaging $VARIANT..."
               
-              cp -f $DIR/out/arch/arm64/boot/Image.gz AnyKernel3/
-              cp -f $DIR/out/arch/arm64/boot/dtb.img AnyKernel3/
-              cp -f $DIR/out/arch/arm64/boot/dtbo.img AnyKernel3/
+              # FIXED: Removed 'out/' prefix
+              cp -f $DIR/arch/arm64/boot/Image.gz AnyKernel3/
+              cp -f $DIR/arch/arm64/boot/dtb.img AnyKernel3/
+              cp -f $DIR/arch/arm64/boot/dtbo.img AnyKernel3/
               
               cd AnyKernel3
               # ZIP name will automatically pull LOCALVERSION from .config
