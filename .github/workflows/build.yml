@@ -4,7 +4,6 @@ env:
   # --- NERV HQ CONFIGURATION ---
   KERNEL_NAME: "FranxxCORE"
   DEVICE: "Sweet"
-  CODENAME: "SAWIT"
   DEFCONFIG: "sweet_defconfig"
   CLANG_VER: "r547379"
   CLANG_URL: "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
@@ -28,8 +27,6 @@ jobs:
   setup_env:
     name: "🛠️ PREPARE // ENVIRONMENT"
     runs-on: ubuntu-22.04
-    outputs:
-      clang_path: ${{ steps.clang_install.outputs.path }}
     steps:
       - name: "⚡ [CACHE] :: CLANG_TOOLCHAIN"
         id: cache-clang
@@ -183,7 +180,7 @@ jobs:
             LTO_STAT="LTO-None"
           fi
 
-          # LLVM POLLY Detection Logic (Supports dual config naming)
+          # Detect LLVM Polly
           if grep -q "CONFIG_LLVM_POLLY=y" out/.config || grep -q "CONFIG_POLLY_CLANG=y" out/.config; then
             POLLY_STAT="Enabled"
           else
@@ -242,14 +239,16 @@ jobs:
           # Fetching Metadata from one of the artifact folders
           METADATA_DIR=$(ls -d ./artifacts/*-unit | head -n 1)
           
-          # FIXED: Removed 'out/' prefix since upload-artifact v4 strips it
-          LTO_STAT=$(cat "$METADATA_DIR/LTO_STAT.txt")
-          LOCAL_VER=$(cat "$METADATA_DIR/LOCAL_VER.txt")
-          POLLY_STAT=$(cat "$METADATA_DIR/POLLY_STAT.txt")
+          RAW_LTO=$(cat "$METADATA_DIR/LTO_STAT.txt")
+          RAW_VER=$(cat "$METADATA_DIR/LOCAL_VER.txt")
+          RAW_POLLY=$(cat "$METADATA_DIR/POLLY_STAT.txt")
           
-          echo "LTO_STAT=$LTO_STAT" >> $GITHUB_ENV
-          echo "LOCAL_VER=$LOCAL_VER" >> $GITHUB_ENV
-          echo "POLLY_STAT=$POLLY_STAT" >> $GITHUB_ENV
+          # SANITIZATION: Replace '/' and ':' with '-' for safe filenames
+          SAFE_VER=$(echo "$RAW_VER" | sed 's/[\/:]/-/g')
+          
+          echo "LTO_STAT=$RAW_LTO" >> $GITHUB_ENV
+          echo "LOCAL_VER=$SAFE_VER" >> $GITHUB_ENV
+          echo "POLLY_STAT=$RAW_POLLY" >> $GITHUB_ENV
 
       - name: "📦 [PACKAGE] :: ANYKERNEL3_ZIP"
         run: |
@@ -291,14 +290,13 @@ jobs:
               VARIANT=$(basename "$DIR" -unit)
               echo "Packaging $VARIANT..."
               
-              # FIXED: Removed 'out/' prefix
               cp -f $DIR/arch/arm64/boot/Image.gz AnyKernel3/
               cp -f $DIR/arch/arm64/boot/dtb.img AnyKernel3/
               cp -f $DIR/arch/arm64/boot/dtbo.img AnyKernel3/
               
               cd AnyKernel3
-              # ZIP name will automatically pull LOCALVERSION from .config
-              zip -r1 "../release_zips/${KERNEL_NAME}${LOCAL_VER}-${VARIANT}-${CODENAME}-$(date +'%Y%m%d').zip" * -x .git README.md
+              # Assembly: KERNEL_NAME + SANITIZED_VER + VARIANT + DATE
+              zip -r1 "../release_zips/${KERNEL_NAME}${LOCAL_VER}-${VARIANT}-$(date +'%Y%m%d').zip" * -x .git README.md
               cd ..
           done
 
@@ -317,7 +315,7 @@ jobs:
             #### ⚙️ CORE METADATA:
             * **Local Version:** `${{ env.LOCAL_VER }}`
             * **LTO System:** `${{ env.LTO_STAT }}`
-            * **LLVM Polly:** ${{ env.POLLY_STAT }}
+            * **LLVM Polly:** `${{ env.POLLY_STAT }}`
             
             #### 📦 DEPLOYED UNITS:
             | Variant | KSU | MIUI Patch |
