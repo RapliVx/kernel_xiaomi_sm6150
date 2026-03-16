@@ -20,11 +20,15 @@
 #include <linux/uaccess.h>
 #include <linux/mm_inline.h>
 #include <linux/ctype.h>
+#include <asm/pgtable.h>
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 #include "internal.h"
+
+#define SEQ_PUT_DEC(str, val) \
+		seq_printf(m, "%-15s%8lu kB\n", str, val)
 
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
@@ -386,6 +390,15 @@ static int is_stack(struct vm_area_struct *vma)
 									\
 	2;								\
 })
+
+/* Helper untuk mencetak angka hexadecimal dengan lebar tertentu dan pemisah */
+static void seq_put_hex_ll(struct seq_file *m, const char *sep,
+			   unsigned long long v, int width)
+{
+	if (sep)
+		seq_puts(m, sep);
+	seq_printf(m, "%0*llx", width, v);
+}
 
 static int show_vma_header_prefix(struct seq_file *m, unsigned long start,
 				  unsigned long end, vm_flags_t flags,
@@ -869,6 +882,10 @@ static int smaps_hugetlb_range(pte_t *pte, unsigned long hmask,
 }
 #endif /* HUGETLB_PAGE */
 
+void __weak arch_show_smap(struct seq_file *m, struct vm_area_struct *vma)
+{
+}
+
 static void smap_gather_stats(struct vm_area_struct *vma,
 			     struct mem_size_stats *mss)
 {
@@ -958,6 +975,9 @@ static int show_smap(struct seq_file *m, void *v)
 {
 	struct vm_area_struct *vma = v;
 	struct mem_size_stats mss;
+	// FIX 1: Tambahkan variabel yang hilang agar compiler tidak error
+	bool rollup_mode = false; 
+	bool last_vma = false;
 
 	memset(&mss, 0, sizeof(mss));
 
@@ -997,22 +1017,23 @@ static int show_smap(struct seq_file *m, void *v)
 			   "Swap:           %8lu kB\n"
 			   "SwapPss:        %8lu kB\n"
 			   "Locked:         %8lu kB\n",
-			   mss->resident >> 10,
-			   (unsigned long)(mss->pss >> (10 + PSS_SHIFT)),
-			   mss->shared_clean  >> 10,
-			   mss->shared_dirty  >> 10,
-			   mss->private_clean >> 10,
-			   mss->private_dirty >> 10,
-			   mss->referenced >> 10,
-			   mss->anonymous >> 10,
-			   mss->lazyfree >> 10,
-			   mss->anonymous_thp >> 10,
-			   mss->shmem_thp >> 10,
-			   mss->shared_hugetlb >> 10,
-			   mss->private_hugetlb >> 10,
-			   mss->swap >> 10,
-			   (unsigned long)(mss->swap_pss >> (10 + PSS_SHIFT)),
-			   (unsigned long)(mss->pss_locked >> (10 + PSS_SHIFT)));
+			   mss.resident >> 10,
+			   // FIX 2: Ganti semua 'mss->' menjadi 'mss.'
+			   (unsigned long)(mss.pss >> (10 + PSS_SHIFT)),
+			   mss.shared_clean  >> 10,
+			   mss.shared_dirty  >> 10,
+			   mss.private_clean >> 10,
+			   mss.private_dirty >> 10,
+			   mss.referenced >> 10,
+			   mss.anonymous >> 10,
+			   mss.lazyfree >> 10,
+			   mss.anonymous_thp >> 10,
+			   mss.shmem_thp >> 10,
+			   mss.shared_hugetlb >> 10,
+			   mss.private_hugetlb >> 10,
+			   mss.swap >> 10,
+			   (unsigned long)(mss.swap_pss >> (10 + PSS_SHIFT)),
+			   (unsigned long)(mss.pss_locked >> (10 + PSS_SHIFT)));
 
 	if (!rollup_mode) {
 		arch_show_smap(m, vma);
