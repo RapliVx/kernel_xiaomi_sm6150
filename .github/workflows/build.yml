@@ -1,0 +1,337 @@
+name: "Build Kernel"
+
+env:
+  # --- NERV HQ CONFIGURATION ---
+  KERNEL_NAME: "FranxxCORE"
+  DEVICE: "Sweet"
+  CODENAME: "AHumanWorks"
+  DEFCONFIG: "sweet_defconfig"
+  CLANG_VER: "r547379"
+  CLANG_URL: "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
+  
+  # --- MAGI SYSTEM IDENTITY ---
+  KBUILD_BUILD_USER: "RapliVX"
+  KBUILD_BUILD_HOST: "NyarchLinux"
+  TZ: "Asia/Jakarta"
+  
+  # --- SECURITY CLEARANCE ---
+  TG_TOKEN: ${{ secrets.TG_TOKEN }}
+  TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # PHASE 0: PREPARATION (ENVIRONMENT SETUP)
+  # ------------------------------------------------------------------
+  setup_env:
+    name: "🛠️ PREPARE // ENVIRONMENT"
+    runs-on: ubuntu-22.04
+    outputs:
+      clang_path: ${{ steps.clang_install.outputs.path }}
+    steps:
+      - name: "⚡ [CACHE] :: CLANG_TOOLCHAIN"
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: aosp-clang
+          key: ${{ runner.os }}-clang-${{ env.CLANG_VER }}
+
+      - name: "🔧 [DOWNLOAD] :: CLANG_TOOLCHAIN"
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading Clang..."
+          wget -q ${{ env.CLANG_URL }} -O aosp-clang.tar.gz
+          mkdir -p aosp-clang
+          tar -xf aosp-clang.tar.gz -C aosp-clang
+          rm -f aosp-clang.tar.gz
+
+  # ------------------------------------------------------------------
+  # PHASE 1: PARALLEL SYNCHRONIZATION (MATRIX BUILD)
+  # ------------------------------------------------------------------
+  synchronization:
+    name: "🛡️ ${{ matrix.unit }} // BUILD"
+    needs: setup_env
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - unit: "UNIT-00 (AOSP-STD)"
+            variant: "AOSP"
+            ksu: false
+            patch_miui: false
+          - unit: "UNIT-01 (MIUI-STD)"
+            variant: "MIUI"
+            ksu: false
+            patch_miui: true
+          - unit: "UNIT-02 (AOSP-KSU)"
+            variant: "AOSP-KSU"
+            ksu: true
+            patch_miui: false
+          - unit: "UNIT-03 (MIUI-KSU)"
+            variant: "MIUI-KSU"
+            ksu: true
+            patch_miui: true
+
+    steps:
+      - name: "⬢ [INIT] :: SOURCE_CHECKOUT"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: "⚡ [RESTORE] :: CLANG_TOOLCHAIN"
+        uses: actions/cache@v4
+        with:
+          path: aosp-clang
+          key: ${{ runner.os }}-clang-${{ env.CLANG_VER }}
+          fail-on-cache-miss: true
+
+      - name: "⚡ [CACHE] :: CCACHE_ACCELERATION"
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.variant }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.variant }}-
+            ${{ runner.os }}-ccache-
+
+      - name: "⬢ [SYSTEM] :: DEPENDENCIES"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+          bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
+          git libncurses5-dev libssl-dev libxml2 libxml2-utils lzop make \
+          python3 python3-pip unzip zip zlib1g-dev
+
+      - name: "💾 [OPT] :: ALLOCATE SWAP SPACE (ANTI-OOM LTO)"
+        run: |
+          echo "Allocating 8GB Swap Space to prevent LTO linking from being killed by OOM..."
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: "⚙️ [CONFIG] :: CCACHE_SETUP"
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          ccache -M 2G
+          ccache -o compression=true
+          ccache -o compression_level=1
+          ccache -z
+
+      - name: "🧹 [MOD] :: KSU_INTEGRATION"
+        if: matrix.ksu == true
+        run: |
+          echo "⚠️ INITIATING MAMBOSU PROTOCOL ..."
+          curl -LSs "https://raw.githubusercontent.com/Sorayukii/KernelSU-Next/stable/kernel/setup.sh" | bash -s hookless
+
+      - name: "🧹 [MOD] :: KSU_PURGE"
+        if: matrix.ksu == false
+        run: |
+          sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG }}
+
+      - name: "🩹 [PATCH] :: MIUI_OPTIMIZATION"
+        if: matrix.patch_miui == true
+        run: |
+          python3 -c "
+          import os, re
+          targets = ['dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi', 'dsi-panel-k6-38-0e-0b-fhd-dsc-video.dtsi']
+          for root, dirs, files in os.walk('.'):
+              for file in files:
+                  if file in targets:
+                      path = os.path.join(root, file)
+                      with open(path, 'r') as f: content = f.read()
+                      
+                      content = re.sub(r'qcom,mdss-pan-physical-width-dimension\s*=\s*<[0-9]+>;', 'qcom,mdss-pan-physical-width-dimension = <695>;', content)
+                      content = re.sub(r'qcom,mdss-pan-physical-height-dimension\s*=\s*<[0-9]+>;', 'qcom,mdss-pan-physical-height-dimension = <1546>;', content)
+                      
+                      with open(path, 'w') as f: f.write(content)
+                      print(f'Patched dimensions for MIUI in {path}')
+          "
+
+      - name: "⚔️ [COMPILE] :: KERNEL_BUILD & METADATA"
+        run: |
+          export PATH="${{ github.workspace }}/aosp-clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          
+          # Setup Config
+          make O=out ${DEFCONFIG}
+          
+          # Extracting Metadata: LTO, LLVM POLLY & LOCALVERSION
+          LOCAL_VER=$(grep -Po '(?<=CONFIG_LOCALVERSION=")[^"]*' out/.config || echo "")
+          
+          # High-precision LTO Detection Logic
+          if grep -q "CONFIG_THINLTO=y" out/.config || grep -q "CONFIG_LTO_CLANG_THIN=y" out/.config; then
+            LTO_STAT="Thin-LTO"
+          elif grep -q "CONFIG_LTO_NONE=y" out/.config; then
+            LTO_STAT="LTO-None"
+          elif grep -q "CONFIG_LTO=y" out/.config || grep -q "CONFIG_LTO_CLANG=y" out/.config; then
+            LTO_STAT="Full-LTO"
+          else
+            LTO_STAT="LTO-None"
+          fi
+
+          # LLVM POLLY Detection Logic (Supports dual config naming)
+          if grep -q "CONFIG_LLVM_POLLY=y" out/.config || grep -q "CONFIG_POLLY_CLANG=y" out/.config; then
+            POLLY_STAT="Enabled"
+          else
+            POLLY_STAT="Disabled"
+          fi
+          
+          echo "Detecting LTO: $LTO_STAT"
+          echo "Detecting LLVM POLLY: $POLLY_STAT"
+          echo "Detecting LOCALVERSION: $LOCAL_VER"
+          
+          echo "$LTO_STAT" > out/LTO_STAT.txt
+          echo "$LOCAL_VER" > out/LOCAL_VER.txt
+          echo "$POLLY_STAT" > out/POLLY_STAT.txt
+          
+          # Execute Build
+          make -j$(nproc --all) O=out \
+            LLVM=1 LLVM_IAS=1 CC="ccache clang" \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            Image.gz dtbo.img dtb.img
+
+      - name: "📊 [STATS] :: CCACHE_REPORT"
+        run: ccache -s
+
+      - name: "📤 [UPLOAD] :: ARTIFACTS"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}-unit
+          path: |
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/dtb.img
+            out/arch/arm64/boot/dtbo.img
+            out/LTO_STAT.txt
+            out/LOCAL_VER.txt
+            out/POLLY_STAT.txt
+          compression-level: 9
+
+  # ------------------------------------------------------------------
+  # PHASE 2: DEPLOYMENT (ZIPPING & RELEASING)
+  # ------------------------------------------------------------------
+  human-instrumentality:
+    name: "🧬 PROTOCOL: FINAL_DOGMA"
+    runs-on: ubuntu-latest
+    needs: [synchronization]
+    permissions:
+      contents: write
+
+    steps:
+      - name: "📥 [COLLECT] :: ARTIFACTS"
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: "🔍 [INSPECT] :: EXTRACT METADATA"
+        run: |
+          # Fetching Metadata from one of the artifact folders
+          METADATA_DIR=$(ls -d ./artifacts/*-unit | head -n 1)
+          
+          LTO_STAT=$(cat "$METADATA_DIR/out/LTO_STAT.txt")
+          LOCAL_VER=$(cat "$METADATA_DIR/out/LOCAL_VER.txt")
+          POLLY_STAT=$(cat "$METADATA_DIR/out/POLLY_STAT.txt")
+          
+          echo "LTO_STAT=$LTO_STAT" >> $GITHUB_ENV
+          echo "LOCAL_VER=$LOCAL_VER" >> $GITHUB_ENV
+          echo "POLLY_STAT=$POLLY_STAT" >> $GITHUB_ENV
+
+      - name: "📦 [PACKAGE] :: ANYKERNEL3_ZIP"
+        run: |
+          mkdir -p release_zips
+          git clone -q https://github.com/RapliVx/AnyKernel3.git -b sweet AnyKernel3
+          
+          cat > AnyKernel3/banner << 'EOF'
+           SORY                                 
+           QXQVYXY                               
+           SNRXWYXZ                         RNKJOY          
+            YXYYYYYYXY                  PLOSUYXYOXNJCV          
+              YXY YXYXSRV            VTV LZUKGLDDWPARAS          
+                YXYYYVUUUYY        QEAAAIXPNOJCEDLTAQAR          
+                  YYYVUVT YXY     WLFPSNGPNKTLJNAUIXCHV          
+                    YWQYUPTSJISPLSQAAEPHGFWGLEAJPMLM              
+                      TQR RPKJHFPIVQQLYMCFTBIAJYPPNP              
+                        RNTSFMGHPMAAAAKUFJURFL VRXNT              
+                          WUONRTOAFGQRMLTKMOOPWWTPUVQRW          
+                            XWXWOAAANOLTTMJVTMWZXXYSVTU VTV      
+                              PMXPVWRSUSXSSSYOTVSUYURSXYTYSY      
+                              LVNTOWJCPNUMUSWMSILQYXXYZXVSXWX    
+                              QLPQGJMYNJXPSSMWSVPOKRZXYY YWXTW   
+                                  WUW QHSLTUVQPJNRSO YZZVTYTXU   
+                                      UIKJUOMTOSULKR ZYYUXTYVW   
+                                      VTMTPGSJ         XVUYVYZ   
+                                      VYTRULUM         ZYWVWXZ   
+                                      WUVXSROP           YWWY    
+                                       YTQZLNR                   
+                                       PURTWU                    
+                                       SOXXTU                    
+                                        TQOSU                    
+                                        YXXWX                    
+          
+           FranxxCORE // MAMBOSU PROTOCOL
+           BY RapliVX
+          EOF
+          
+          for DIR in ./artifacts/*-unit; do
+              VARIANT=$(basename "$DIR" -unit)
+              echo "Packaging $VARIANT..."
+              
+              cp -f $DIR/out/arch/arm64/boot/Image.gz AnyKernel3/
+              cp -f $DIR/out/arch/arm64/boot/dtb.img AnyKernel3/
+              cp -f $DIR/out/arch/arm64/boot/dtbo.img AnyKernel3/
+              
+              cd AnyKernel3
+              # ZIP name will automatically pull LOCALVERSION from .config
+              zip -r1 "../release_zips/${KERNEL_NAME}${LOCAL_VER}-${VARIANT}-${CODENAME}-$(date +'%Y%m%d').zip" * -x .git README.md
+              cd ..
+          done
+
+      - name: "⬆️ [RELEASE] :: GITHUB_RELEASE"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "EVA-${{ github.run_number }}"
+          name: "ProjectEVA: MAMBOSU [Run ${{ github.run_number }}]"
+          files: release_zips/*.zip
+          body: |
+            ### ⚠️ NERV SECURITY CLEARANCE REQUIRED
+            **Mission:** Kernel Instrumentality
+            **Device:** Redmi Note 10 Pro (sweet)
+            **Compiler:** Clang ${{ env.CLANG_VER }}
+            
+            #### ⚙️ CORE METADATA:
+            * **Local Version:** `${{ env.LOCAL_VER }}`
+            * **LTO System:** `${{ env.LTO_STAT }}`
+            * **LLVM Polly:** ${{ env.POLLY_STAT }}
+            
+            #### 📦 DEPLOYED UNITS:
+            | Variant | KSU | MIUI Patch |
+            | :--- | :---: | :---: |
+            | **AOSP** | ❌ | ❌ |
+            | **MIUI** | ❌ | ✅ |
+            | **AOSP-KSU** | ✅ | ❌ |
+            | **MIUI-KSU** | ✅ | ✅ |
+            
+            *Synchronization Ratio: 400%*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "📡 [NOTIFY] :: TELEGRAM_BOT"
+        if: success()
+        run: |
+          MSG="<b>🚨 MAGI SYSTEM // MISSION COMPLETE 🚨</b>%0A%0A"
+          MSG+="<b>TARGET:</b> ProjectEVA MAMBOSU%0A"
+          MSG+="<b>LTO SYSTEM:</b> ${{ env.LTO_STAT }}%0A"
+          MSG+="<b>LLVM POLLY:</b> ${{ env.POLLY_STAT }}%0A"
+          MSG+="<b>UNITS:</b> 4 Variants Deployed%0A"
+          MSG+="🔗 <a href='https://github.com/${{ github.repository }}/releases/tag/EVA-${{ github.run_number }}'>ACCESS DATA TERMINAL</a>"
+          
+          curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+            -d chat_id="$TG_CHAT_ID" \
+            -d text="$MSG" \
+            -d parse_mode="HTML" \
+            -d disable_web_page_preview=true
