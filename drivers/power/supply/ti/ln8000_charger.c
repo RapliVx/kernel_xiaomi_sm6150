@@ -860,7 +860,6 @@ static int ln8000_charger_get_property(struct power_supply *psy,
                                        union power_supply_propval *val)
 {
     struct ln8000_info *info = power_supply_get_drvdata(psy);
-    int ret;
 
     switch (prop) {
     case POWER_SUPPLY_PROP_CHARGING_ENABLED:
@@ -879,15 +878,11 @@ static int ln8000_charger_get_property(struct power_supply *psy,
         val->intval = ln8000_get_iin_limit(info);
         break;
     case POWER_SUPPLY_PROP_TI_BATTERY_PRESENT:
-        ret = ln8000_get_adc_data(info, LN8000_ADC_CH_VBAT, &info->vbat_uV);
-        if (ret < 0) {
-            val->intval = 1; 
+        ln8000_get_adc_data(info, LN8000_ADC_CH_VBAT, &info->vbat_uV);
+        if (info->vbat_uV > LN8000_ADC_VBAT_MIN) {
+            val->intval = 1;    /* detected battery */
         } else {
-            if (info->vbat_uV > LN8000_ADC_VBAT_MIN) {
-                val->intval = 1;    /* detected battery */
-            } else {
-                val->intval = 0;    /* non-detected battery */
-            }
+            val->intval = 0;    /* non-detected battery */
         }
         break;
     case POWER_SUPPLY_PROP_TI_VBUS_PRESENT:
@@ -895,26 +890,20 @@ static int ln8000_charger_get_property(struct power_supply *psy,
         val->intval = !(info->vac_unplug);
         break;
     case POWER_SUPPLY_PROP_TI_BATTERY_VOLTAGE:
-        ret = ln8000_get_adc_data(info, LN8000_ADC_CH_VBAT, &info->vbat_uV);
-        if (ret < 0 && info->vbat_uV == 0) {
-            info->vbat_uV = 3800000; 
-        }
+        ln8000_get_adc_data(info, LN8000_ADC_CH_VBAT, &info->vbat_uV);
         val->intval = info->vbat_uV/1000;
         break;
-    case POWER_SUPPLY_PROP_TI_BATTERY_CURRENT:
-        ret = ln8000_get_adc_data(info, LN8000_ADC_CH_IIN, &info->iin_uA);
-        if (ret < 0 && info->iin_uA == 0) info->iin_uA = 500000;
-        val->intval = (info->iin_uA * 2)/1000;
+    case POWER_SUPPLY_PROP_TI_BATTERY_CURRENT:  /* ln8000 not support IBAT_ADC */
+        ln8000_get_adc_data(info, LN8000_ADC_CH_IIN, &info->iin_uA);
+        val->intval = (info->iin_uA * 2)/1000;         /* return to IBUS_ADC x 2 */
         break;
     case POWER_SUPPLY_PROP_TI_BATTERY_TEMPERATURE:
         if (info->pdata->tbat_mon_disable) {
             val->intval = 0;
         } else {
-            ret = ln8000_get_adc_data(info, LN8000_ADC_CH_TSBAT, &info->tbat_uV);
-            if (ret < 0 && info->tbat_uV <= 0) {
-                 info->tbat_uV = 250;
-            }
+            ln8000_get_adc_data(info, LN8000_ADC_CH_TSBAT, &info->tbat_uV);
             val->intval = info->tbat_uV;
+            ln_info("ti_battery_temperature: adc_tbat=%d\n", val->intval);
         }
         break;
     case POWER_SUPPLY_PROP_TI_BUS_VOLTAGE:
@@ -935,12 +924,9 @@ static int ln8000_charger_get_property(struct power_supply *psy,
         }
         break;
     case POWER_SUPPLY_PROP_TI_DIE_TEMPERATURE:
-        ret = ln8000_get_adc_data(info, LN8000_ADC_CH_DIETEMP, &info->tdie_dC);
-
-        if (ret < 0 && info->tdie_dC <= 0) {
-             info->tdie_dC = 35;
-        }
+        ln8000_get_adc_data(info, LN8000_ADC_CH_DIETEMP, &info->tdie_dC);
         val->intval = info->tdie_dC;
+        ln_info("ti_die_temperature: adc_tdie=%d\n", val->intval);
         break;
     case POWER_SUPPLY_PROP_TI_ALARM_STATUS:
         val->intval = psy_chg_get_ti_alarm_status(info);
